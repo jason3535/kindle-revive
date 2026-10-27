@@ -1,0 +1,22 @@
+.DS_Store
+._*
+__pycache__/
+.venv/
+*.bak
+*.bak-*
+# highlights 个人数据与产物
+highlights/highlights.json
+highlights/applebooks.json
+highlights/koreader.json
+highlights/index.html
+highlights/vocab_zh.json
+highlights/vocab_words.txt
+highlights/title_overrides.json
+highlights/_applebooks/
+highlights/_kindle/
+highlights/_koreader/
+*.azw3
+*.epub
+*.mobi
+id_ed25519*
+authorized_keys

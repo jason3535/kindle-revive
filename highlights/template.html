@@ -1,0 +1,1108 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>读书高亮</title>
+<style>
+  /* Nothing 的设计语言：只有黑、白、一点红，没有中间色。
+     点阵字、等宽标签、发丝网格、技术说明书式的排版。
+     硬件本身有黑白两种配色，所以明暗两套都算原生。 */
+  :root {
+    --ground:   #ffffff;
+    --raise:    #f2f2f2;
+    --line:     rgba(0, 0, 0, .14);
+    --line-firm:rgba(0, 0, 0, .30);
+    --fg:       #000000;
+    --fg-mid:   #555555;
+    --fg-low:   #8c8c8c;
+    --red:      #d71921;
+    --dot:      rgba(0, 0, 0, .10);
+
+    --mono: ui-monospace, "SF Mono", "Courier New", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    --measure: 44rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:   #000000;
+      --raise:    #0d0d0d;
+      --line:     rgba(255, 255, 255, .14);
+      --line-firm:rgba(255, 255, 255, .32);
+      --fg:       #ffffff;
+      --fg-mid:   #a0a0a0;
+      --fg-low:   #666666;
+      --red:      #ff2b32;
+      --dot:      rgba(255, 255, 255, .09);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:   #000000;
+    --raise:    #0d0d0d;
+    --line:     rgba(255, 255, 255, .14);
+    --line-firm:rgba(255, 255, 255, .32);
+    --fg:       #ffffff;
+    --fg-mid:   #a0a0a0;
+    --fg-low:   #666666;
+    --red:      #ff2b32;
+    --dot:      rgba(255, 255, 255, .09);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    background-image: radial-gradient(var(--dot) 1px, transparent 1px);
+    background-size: 16px 16px;
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: var(--measure);
+    margin: 0 auto;
+    padding: 0 1.25rem 6rem;
+    background: var(--ground);
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+    min-height: 100vh;
+  }
+
+  /* ---------- 页眉 ---------- */
+  header { padding: 3rem 0 1.25rem; }
+  #wordmark {
+    display: block;
+    width: 100%;
+    height: 3.5rem;
+    color: var(--fg);
+  }
+  h1 {
+    margin: .6rem 0 0;
+    font-family: var(--mono);
+    font-size: .75rem;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: .34em;
+    color: var(--fg-low);
+  }
+
+  .readout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr));
+    border: 1px solid var(--line);
+    margin: 1.5rem 0 0;
+  }
+  .cell {
+    padding: .75rem .8rem;
+    border-right: 1px solid var(--line);
+  }
+  .cell:last-child { border-right: 0; }
+  .cell .k {
+    display: block;
+    font-family: var(--mono); font-size: .5625rem;
+    text-transform: uppercase; letter-spacing: .18em;
+    color: var(--fg-low);
+  }
+  .cell .v {
+    display: block; margin-top: .2rem;
+    font-family: var(--mono); font-size: 1.375rem; font-weight: 500;
+    font-variant-numeric: tabular-nums; line-height: 1.1;
+  }
+  .cell .v.sm { font-size: .8125rem; padding-top: .5rem; color: var(--fg-mid); }
+
+  /* ---------- 标签页 ---------- */
+  .tabs {
+    display: flex;
+    margin: 1.5rem 0 1.75rem;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .tabs button {
+    flex: 1;
+    appearance: none; background: none;
+    border: 0; border-right: 1px solid var(--line);
+    padding: .7rem .3rem;
+    font-family: var(--mono); font-size: .625rem;
+    text-transform: uppercase; letter-spacing: .12em;
+    color: var(--fg-low); cursor: pointer;
+    position: relative;
+  }
+  .tabs button:last-child { border-right: 0; }
+  .tabs button:hover { color: var(--fg-mid); }
+  .tabs button[aria-selected="true"] { color: var(--fg); }
+  .tabs button[aria-selected="true"]::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+    height: 2px; background: var(--red);
+  }
+  :focus-visible { outline: 2px solid var(--red); outline-offset: 1px; }
+
+  /* ---------- 摘录 ---------- */
+  .entries { display: flex; flex-direction: column; }
+  .entry { padding: 1.5rem 0; border-bottom: 1px solid var(--line); }
+  .entry:first-child { padding-top: .25rem; }
+
+  .entry blockquote {
+    margin: 0 0 1rem;
+    font-size: 1.0625rem;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  .stamp {
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    gap: .3rem .85rem;
+    font-family: var(--mono); font-size: .625rem;
+    text-transform: uppercase; letter-spacing: .1em;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-low);
+  }
+  .stamp .src {
+    font-family: var(--sans); font-size: .75rem;
+    text-transform: none; letter-spacing: 0; color: var(--fg-mid);
+  }
+  /* 书名做成按钮但长得像文字：从任何一条摘录都能直接进那本书 */
+  button.src {
+    appearance: none; background: none; border: 0; padding: 0; margin: 0;
+    cursor: pointer; text-align: left;
+    border-bottom: 1px solid transparent;
+  }
+  button.src:hover { color: var(--red); border-bottom-color: var(--red); }
+  .stamp .gap { flex: 1 1 auto; }
+  .stamp .tag { color: var(--red); border: 1px solid currentColor; padding: 0 .3rem; }
+  .stamp button {
+    appearance: none; background: none; border: 1px solid var(--line-firm);
+    padding: .1rem .4rem; font: inherit; font-size: .625rem;
+    text-transform: uppercase; letter-spacing: .1em;
+    color: var(--fg-low); cursor: pointer;
+  }
+  .stamp button:hover { color: var(--ground); background: var(--fg); border-color: var(--fg); }
+
+  mark { background: var(--red); color: #fff; padding: 0 .12em; }
+
+  /* ---------- 年份分布 ---------- */
+  .years {
+    display: flex; align-items: flex-end; gap: 2px;
+    height: 3.25rem; margin: 0 0 1.5rem; padding-bottom: 1.25rem;
+    border-bottom: 1px solid var(--line); position: relative;
+  }
+  .years .col { flex: 1; display: flex; align-items: flex-end; height: 100%; }
+  .years .bar { width: 100%; background: var(--line-firm); min-height: 2px; }
+  .years .col[data-peak="1"] .bar { background: var(--red); }
+  .years .yr {
+    position: absolute; bottom: 0;
+    font-family: var(--mono); font-size: .5625rem;
+    letter-spacing: .1em; color: var(--fg-low);
+  }
+
+  /* ---------- 输入 ---------- */
+  .field { margin: 0 0 1.5rem; }
+  .field input {
+    width: 100%; padding: .7rem .8rem;
+    font-family: var(--mono); font-size: .8125rem;
+    color: var(--fg); background: var(--raise);
+    border: 1px solid var(--line-firm); border-radius: 0;
+    outline: none;
+  }
+  .field input:focus { border-color: var(--red); }
+  .field input::placeholder { color: var(--fg-low); text-transform: uppercase; letter-spacing: .08em; }
+
+  /* ---------- 书架 ---------- */
+  .shelf { margin: 0; padding: 0; list-style: none; }
+  .shelf li {
+    display: flex; align-items: baseline; gap: .75rem;
+    padding: .7rem .15rem; border-bottom: 1px solid var(--line);
+    cursor: pointer;
+  }
+  .shelf li:hover { background: var(--raise); }
+  .shelf li:hover .name { color: var(--red); }
+  .shelf .name { flex: 1; font-size: .9375rem; }
+  .shelf .by { font-family: var(--mono); font-size: .625rem; color: var(--fg-low);
+               text-transform: uppercase; letter-spacing: .06em; }
+  .shelf .n {
+    font-family: var(--mono); font-size: .75rem;
+    font-variant-numeric: tabular-nums; color: var(--fg-low); min-width: 2.5rem; text-align: right;
+  }
+  .shelf .when {
+    font-family: var(--mono); font-size: .6875rem; letter-spacing: .04em;
+    font-variant-numeric: tabular-nums; color: var(--fg-low); white-space: nowrap;
+  }
+  .shelf .when b { font-weight: 400; color: var(--fg-mid); }
+  .shelf .name { min-width: 0; }
+  .shelf .by { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 11rem; }
+  @media (max-width: 560px) {
+    .shelf li { flex-wrap: wrap; row-gap: .15rem; }
+    .shelf .name { flex-basis: calc(100% - 3.25rem); }
+    .shelf .by { order: 3; max-width: none; flex: 1; }
+    .shelf .when { order: 4; }
+  }
+  /* 年份分隔:按时间排时,书架变成一条时间线 */
+  .shelf .year {
+    display: flex; align-items: baseline; gap: .75rem; cursor: default;
+    padding: 1.4rem .15rem .4rem; border-bottom: 1px solid var(--line-firm);
+  }
+  .shelf .year:hover { background: none; }
+  .shelf .year .y { font-family: var(--mono); font-size: 1.25rem; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+  .shelf .year .n { flex: 1; text-align: left; min-width: 0; }
+  .shelf .year .bar { height: 2px; background: var(--red); align-self: center; }
+  /* 排序切换:和顶部 tabs 同一套语言,但更轻 */
+  .sortbar {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem 0;
+    margin: -.5rem 0 .75rem; font-family: var(--mono); font-size: .6875rem;
+    text-transform: uppercase; letter-spacing: .08em; color: var(--fg-low);
+  }
+  .sortbar .lbl { margin-right: .75rem; }
+  .sortbar button {
+    appearance: none; background: none; border: 0; padding: .35rem .6rem; margin: 0;
+    font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--fg-low);
+    cursor: pointer; border-bottom: 2px solid transparent;
+  }
+  .sortbar button:hover { color: var(--fg); }
+  .sortbar button[aria-pressed="true"] { color: var(--fg); border-bottom-color: var(--red); }
+  .sortbar button:focus-visible { outline: 1px solid var(--red); outline-offset: 2px; }
+
+  /* ---------- 单词本 ---------- */
+  .lexicon { margin: 0; padding: 0; list-style: none; }
+  .lex {
+    display: grid;
+    grid-template-columns: minmax(7rem, 11rem) 1fr;
+    gap: .15rem 1.25rem; align-items: baseline;
+    padding: .7rem .15rem; border-bottom: 1px solid var(--line);
+  }
+  .lex .head { display: flex; align-items: center; gap: .5rem; }
+  .lex .w {
+    font-family: var(--mono); font-size: .875rem; font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+  .say {
+    flex: none;
+    appearance: none; background: none;
+    border: 1px solid var(--line-firm); border-radius: 0;
+    width: 1.375rem; height: 1.375rem;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--fg-low); cursor: pointer; padding: 0;
+  }
+  .say svg { width: .75rem; height: .75rem; display: block; }
+  .say:hover { color: var(--ground); background: var(--fg); border-color: var(--fg); }
+  .say[data-on="1"] { color: #fff; background: var(--red); border-color: var(--red); }
+  .say[hidden] { display: none; }
+  .lex .z { font-size: .9375rem; color: var(--fg-mid); }
+  .lex .z:empty::before { content: "—"; color: var(--fg-low); }
+  .lex .whence {
+    grid-column: 1 / -1;
+    display: flex; flex-wrap: wrap; gap: .3rem .7rem;
+    font-family: var(--mono); font-size: .5625rem;
+    text-transform: uppercase; letter-spacing: .1em; color: var(--fg-low);
+  }
+  /* 书名动辄一长串副标题，每行重复会盖过词条本身，截断即可 */
+  .lex .whence .bk {
+    font-family: var(--sans); font-size: .6875rem;
+    text-transform: none; letter-spacing: 0;
+    max-width: 16rem; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .lex .rep { color: var(--red); }
+  @media (max-width: 34rem) { .lex { grid-template-columns: 1fr; gap: .1rem; } }
+
+  /* ---------- 知识点图谱 ---------- */
+  .canvaswrap { border: 1px solid var(--line); margin: 0 0 1rem; position: relative; }
+  #graph { display: block; width: 100%; height: min(62vh, 30rem); touch-action: none; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: .3rem .9rem;
+    font-family: var(--mono); font-size: .5625rem;
+    text-transform: uppercase; letter-spacing: .12em;
+    color: var(--fg-low); margin: 0 0 1.25rem;
+  }
+  .legend b { color: var(--fg-mid); font-weight: 400; }
+  .picked {
+    border: 1px solid var(--line-firm); padding: .85rem .9rem; margin: 0 0 1.25rem;
+  }
+  .picked h3 {
+    margin: 0 0 .5rem; font-size: 1rem; font-weight: 600;
+    display: flex; align-items: baseline; gap: .6rem;
+  }
+  .picked h3 .n {
+    font-family: var(--mono); font-size: .625rem; letter-spacing: .1em;
+    color: var(--fg-low); font-weight: 400;
+  }
+  .links { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .links button {
+    appearance: none; background: none; border: 1px solid var(--line);
+    padding: .15rem .45rem; font-family: var(--mono); font-size: .625rem;
+    letter-spacing: .06em; color: var(--fg-mid); cursor: pointer;
+  }
+  .links button:hover { border-color: var(--red); color: var(--red); }
+  .links .wt { color: var(--fg-low); }
+
+  /* 画布点不了的场景（键盘、读屏、误触）都靠这排芯片选概念 */
+  .chips {
+    display: flex; flex-wrap: wrap; gap: .3rem;
+    margin: 0 0 1rem;
+  }
+  .chip {
+    appearance: none; background: none; border: 1px solid var(--line);
+    padding: .2rem .45rem; font-family: var(--mono); font-size: .625rem;
+    letter-spacing: .06em; color: var(--fg-low); cursor: pointer;
+  }
+  .chip:hover { color: var(--fg); border-color: var(--line-firm); }
+  .chip[aria-pressed="true"] { color: #fff; background: var(--red); border-color: var(--red); }
+
+  /* ---------- 杂项 ---------- */
+  .backto {
+    appearance: none; background: none; border: 0; padding: 0; margin: 0 0 1rem;
+    font-family: var(--mono); font-size: .625rem;
+    text-transform: uppercase; letter-spacing: .12em;
+    color: var(--red); cursor: pointer;
+  }
+  .booktitle { font-size: 1.25rem; font-weight: 600; margin: 0 0 .3rem; text-wrap: balance; }
+  .note {
+    font-family: var(--mono); font-size: .5625rem;
+    text-transform: uppercase; letter-spacing: .16em;
+    color: var(--fg-low); margin: 0 0 1.25rem;
+  }
+  .void {
+    font-family: var(--mono); font-size: .6875rem;
+    text-transform: uppercase; letter-spacing: .16em;
+    color: var(--fg-low); padding: 3rem 0; text-align: center;
+  }
+  .colophon {
+    margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: .5625rem;
+    text-transform: uppercase; letter-spacing: .12em; color: var(--fg-low);
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  @media (max-width: 34rem) {
+    header { padding-top: 2rem; }
+    .wrap { padding: 0 1rem 4rem; border: 0; }
+    .entry blockquote { font-size: 1rem; }
+    /* auto-fit 在窄屏会排成 3 列 + 孤零零的第四格，改成规整的 2×2 */
+    .readout { grid-template-columns: repeat(2, 1fr); }
+    .cell { border-bottom: 1px solid var(--line); }
+    .cell:nth-child(2n) { border-right: 0; }
+    .cell:nth-last-child(-n+2) { border-bottom: 0; }
+    .cell .v.sm { padding-top: .2rem; }
+    #graph { height: min(72vh, 34rem); }
+    .tabs button { font-size: .5625rem; letter-spacing: .06em; padding: .7rem .15rem; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <canvas id="wordmark" aria-label="HIGHLIGHTS" role="img"></canvas>
+    <h1>读书高亮</h1>
+    <div class="readout" id="readout"></div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="map" aria-selected="true">图谱</button>
+    <button data-tab="today" aria-selected="false">今日</button>
+    <button data-tab="search" aria-selected="false">搜索</button>
+    <button data-tab="books" aria-selected="false">书架</button>
+    <button data-tab="words" aria-selected="false">单词本</button>
+  </nav>
+
+  <main id="view"></main>
+
+  <footer class="colophon">BUILT __BUILT__ · KINDLE + APPLE BOOKS · OFFLINE</footer>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const DB = JSON.parse(document.getElementById('data').textContent);
+const VOCAB = DB.v || [];
+
+const ALL = [];
+DB.b.forEach((bk, i) => bk.e.forEach(e => ALL.push({
+  text: e.x, loc: e.l, date: e.d, isNote: e.n, chapter: e.c, k: e.k,
+  book: bk.t, author: bk.a, src: bk.s, bi: i
+})));
+
+const S = DB.s;
+
+// 每本书的时间跨度(首条/末条划线),书架按时间排、按年分组都靠它
+const SPAN = DB.b.map(b => {
+  const ds = b.e.map(e => e.d).filter(Boolean).sort();
+  return { first: ds[0] || '', last: ds[ds.length - 1] || '' };
+});
+const SORTS = {
+  recent: { label: '最近划线', key: i => SPAN[i].last,  year: i => SPAN[i].last.slice(0, 4),  desc: true },
+  first:  { label: '最早读',   key: i => SPAN[i].first, year: i => SPAN[i].first.slice(0, 4), desc: false },
+  count:  { label: '摘录数',   key: i => DB.b[i].e.length, desc: true },
+};
+let shelfSort = 'recent';
+try { if (SORTS[localStorage.getItem('shelfSort')]) shelfSort = localStorage.getItem('shelfSort'); } catch (e) {}
+const ym = d => d ? d.slice(0, 4) + '.' + d.slice(5, 7) : '';
+function spanHTML(i) {
+  const { first, last } = SPAN[i];
+  if (!last) return '';
+  const a = ym(first), b = ym(last);
+  return `<span class="when">${a === b ? `<b>${b}</b>` : `${a} → <b>${b}</b>`}</span>`;
+}
+function shelfHTML() {
+  const srt = SORTS[shelfSort];
+  const idx = DB.b.map((_, i) => i).sort((x, y) => {
+    const kx = srt.key(x), ky = srt.key(y);
+    if (kx === ky) return DB.b[y].e.length - DB.b[x].e.length;
+    return (kx < ky ? -1 : 1) * (srt.desc ? -1 : 1);
+  });
+  const rows = [];
+  let yr = null, yearN = {};
+  if (srt.year) idx.forEach(i => { const y = srt.year(i) || '未知'; yearN[y] = (yearN[y] || 0) + 1; });
+  const maxN = Math.max(1, ...Object.values(yearN));
+  idx.forEach(i => {
+    const b = DB.b[i];
+    if (srt.year) {
+      const y = srt.year(i) || '未知';
+      if (y !== yr) {
+        yr = y;
+        rows.push(`<li class="year" aria-hidden="true"><span class="y">${y}</span>
+          <span class="bar" style="width:${Math.round(40 + 160 * yearN[y] / maxN)}px"></span>
+          <span class="n">${yearN[y]} 本</span></li>`);
+      }
+    }
+    rows.push(`<li data-book="${i}" tabindex="0" role="button">
+       <span class="name">${esc(b.t)}</span>
+       ${b.a ? `<span class="by">${esc(b.a)}</span>` : ''}
+       ${spanHTML(i)}
+       <span class="n">${b.e.length}</span>
+     </li>`);
+  });
+  return `<div class="sortbar" role="group" aria-label="书架排序"><span class="lbl">排序</span>` +
+    Object.entries(SORTS).map(([k, v]) =>
+      `<button type="button" data-sort="${k}" aria-pressed="${k === shelfSort}">${v.label}</button>`).join('') +
+    `</div><ul class="shelf" id="shelf">` + rows.join('') + `</ul>`;
+}
+const SRC_LABEL = { kindle: 'Kindle', books: 'Apple Books' };
+const MULTI = Object.keys(S.srcs || {}).length > 1;
+
+document.getElementById('readout').innerHTML = [
+  ['摘录', S.after_dedupe],
+  ['书', S.books],
+  ['生词', S.words || 0],
+].map(([k, v]) => `<div class="cell"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('')
+  + `<div class="cell"><span class="k">跨度</span>
+       <span class="v sm">${(S.first || '').slice(0, 7)}<br>${S.last || ''}</span></div>`;
+
+/* Nothing 的点阵字：把文字画进离屏画布，逐点采样后重绘成圆点。
+   字体用不了原版 Ndot，但点阵这个形式本身才是识别度所在。 */
+function drawWordmark() {
+  const cv = document.getElementById('wordmark');
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const off = document.createElement('canvas');
+  off.width = w; off.height = h;
+  const o = off.getContext('2d');
+  let size = Math.floor(h * 0.82);
+  o.textBaseline = 'middle';
+  if ('letterSpacing' in o) o.letterSpacing = '4px';
+  const fit = () => {
+    o.font = `400 ${size}px ${getComputedStyle(cv).getPropertyValue('--mono')}`;
+    return o.measureText('HIGHLIGHTS').width;
+  };
+  while (fit() > w - 4 && size > 8) size -= 1;
+  o.fillStyle = '#fff';
+  o.fillText('HIGHLIGHTS', 1, h / 2 + 1);
+
+  // 每个网格取格内最大覆盖度，而不是只看中心那一个像素 ——
+  // 细笔画会整条从采样缝里漏掉，字就散成一片碎点。
+  const px = o.getImageData(0, 0, w, h).data;
+  const step = 3, r = 1.12;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = getComputedStyle(cv).color;
+  for (let y = 0; y + step <= h; y += step) {
+    for (let x = 0; x + step <= w; x += step) {
+      let peak = 0;
+      for (let dy = 0; dy < step && peak < 200; dy++) {
+        for (let dx = 0; dx < step; dx++) {
+          const a = px[((y + dy) * w + (x + dx)) * 4 + 3];
+          if (a > peak) peak = a;
+        }
+      }
+      if (peak > 110) {
+        ctx.beginPath();
+        ctx.arc(x + step / 2, y + step / 2, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+}
+drawWordmark();
+addEventListener('resize', drawWordmark);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawWordmark);
+
+const view = document.getElementById('view');
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function entryHTML(q, term) {
+  let body = esc(q.text);
+  if (term) {
+    const re = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    body = body.replace(re, m => `<mark>${m}</mark>`);
+  }
+  return `<article class="entry">
+    <blockquote>${body}</blockquote>
+    <div class="stamp">
+      ${q.bi != null
+        ? `<button type="button" class="src" data-book="${q.bi}" title="打开这本书">${esc(q.book)}</button>`
+        : `<span class="src">${esc(q.book)}</span>`}
+      ${q.chapter ? `<span>${esc(q.chapter)}</span>` : ''}
+      ${q.isNote ? '<span class="tag">笔记</span>' : ''}
+      <span class="gap"></span>
+      ${MULTI && q.src ? `<span>${q.src.split(',').map(s => SRC_LABEL[s] || s).join('/')}</span>` : ''}
+      ${q.date ? `<span>${q.date}</span>` : ''}
+      ${q.loc ? `<span>#${q.loc}</span>` : ''}
+      <button type="button" data-copy="${encodeURIComponent(q.text)}">复制</button>
+    </div>
+  </article>`;
+}
+
+/* 发音走浏览器内置的语音合成，用的是系统本地语音包：
+   不发任何网络请求，离线可用，也不会撞上发布后的 CSP 限制。 */
+const CAN_SPEAK = typeof speechSynthesis !== 'undefined'
+  && typeof SpeechSynthesisUtterance !== 'undefined';
+
+let enVoice = null;
+function pickVoice() {
+  if (!CAN_SPEAK) return;
+  const vs = speechSynthesis.getVoices().filter(v => /^en(-|_|$)/i.test(v.lang));
+  if (!vs.length) return;
+  // 优先挑本地语音，避免中文语音把英文读得面目全非
+  enVoice = vs.find(v => v.localService && /US/i.test(v.lang))
+    || vs.find(v => v.localService) || vs[0];
+}
+if (CAN_SPEAK) {
+  pickVoice();
+  speechSynthesis.addEventListener('voiceschanged', pickVoice);
+}
+
+function say(word, btn) {
+  if (!CAN_SPEAK) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(word);
+  u.lang = (enVoice && enVoice.lang) || 'en-US';
+  if (enVoice) u.voice = enVoice;
+  u.rate = 0.9;
+  if (btn) {
+    btn.dataset.on = '1';
+    const off = () => { delete btn.dataset.on; };
+    u.onend = off;
+    u.onerror = off;
+    setTimeout(off, 4000);   // 有的系统不触发 onend，兜个底
+  }
+  speechSynthesis.speak(u);
+}
+
+const SPEAKER = '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor"'
+  + ' stroke-width="1.4" stroke-linejoin="round">'
+  + '<path d="M2 6h2.5L8 3v10L4.5 10H2z" fill="currentColor" stroke="none"/>'
+  + '<path d="M10.5 5.5a3.5 3.5 0 0 1 0 5"/><path d="M12.6 3.4a6.5 6.5 0 0 1 0 9.2"/></svg>';
+
+function lexHTML(list) {
+  if (!list.length) return '<li class="void">没有找到</li>';
+  return list.map(v => `<li class="lex">
+    <span class="head">
+      <span class="w">${esc(v.w)}</span>
+      <button type="button" class="say" data-say="${esc(v.w)}"
+              aria-label="朗读 ${esc(v.w)}" ${CAN_SPEAK ? '' : 'hidden'}>${SPEAKER}</button>
+    </span>
+    <span class="z">${esc(v.z)}</span>
+    <span class="whence">
+      <span class="bk">${esc(v.b)}</span>
+      ${v.d ? `<span>${v.d}</span>` : ''}
+      ${v.n > 1 ? `<span class="rep">查过 ${v.n} 次</span>` : ''}
+    </span>
+  </li>`).join('');
+}
+
+let deckPage = 0;   // 「再抽六条」往后翻，同一天的牌序不变
+
+function pickForToday(count) {
+  const d = new Date();
+  let s = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  const idx = [...Array(ALL.length).keys()];
+  const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let i = idx.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [idx[i], idx[j]] = [idx[j], idx[i]];
+  }
+  const from = (deckPage * count) % Math.max(1, idx.length - count);
+  return idx.slice(from, from + count).map(i => ALL[i]);
+}
+
+function yearsHTML() {
+  const tally = {};
+  ALL.forEach(q => { if (q.date) tally[q.date.slice(0, 4)] = (tally[q.date.slice(0, 4)] || 0) + 1; });
+  const yrs = Object.keys(tally).sort();
+  const peak = Math.max(...yrs.map(y => tally[y]));
+  return `<div class="years" role="img" aria-label="按年份的摘录条数分布">` +
+    yrs.map(y => `<div class="col" data-peak="${tally[y] === peak ? 1 : 0}" title="${y} · ${tally[y]}">
+        <div class="bar" style="height:${Math.round(tally[y] / peak * 100)}%"></div></div>`).join('') +
+    `<span class="yr" style="left:0">${yrs[0]}</span>
+     <span class="yr" style="right:0">${yrs[yrs.length - 1]}</span></div>`;
+}
+
+/* ---------- 知识点图谱 ----------
+   节点是概念不是单条摘录：3836 条铺开只会是一团毛线球，
+   而「同一个知识点被哪几本书讲过」才是真正想看的东西。
+   两个概念被同一条摘录同时命中，就在它们之间连一条边。 */
+const CMETA = Object.fromEntries((DB.c || []).map(c => [c.id, c]));
+const DOMAINS = DB.dm || {};
+const MIN_EDGE = 6;          // 共现少于这个数的连线不画，否则全是噪声
+
+const GRAPH = (() => {
+  const cnt = {}, bks = {}, pair = {};
+  ALL.forEach(q => {
+    const k = q.k;
+    if (!k) return;
+    k.forEach(id => {
+      cnt[id] = (cnt[id] || 0) + 1;
+      (bks[id] = bks[id] || new Set()).add(q.book);
+    });
+    for (let i = 0; i < k.length; i++)
+      for (let j = i + 1; j < k.length; j++) {
+        const key = [k[i], k[j]].sort().join('|');
+        pair[key] = (pair[key] || 0) + 1;
+      }
+  });
+  const nodes = Object.keys(cnt).filter(id => CMETA[id]).map(id => ({
+    id, label: CMETA[id].l, domain: CMETA[id].d,
+    n: cnt[id], books: bks[id].size, x: 0, y: 0, vx: 0, vy: 0
+  }));
+  const idx = Object.fromEntries(nodes.map((n, i) => [n.id, i]));
+  const edges = Object.entries(pair)
+    .filter(([k, w]) => w >= MIN_EDGE)
+    .map(([k, w]) => { const [a, b] = k.split('|'); return { a: idx[a], b: idx[b], w }; })
+    .filter(e => e.a !== undefined && e.b !== undefined);
+  return { nodes, edges, idx };
+})();
+
+let picked = null;
+
+// 窄屏上标签要缩，否则 33 个节点在 350px 宽里根本摆不开
+const labelPx = () => (innerWidth < 560 ? 9.5 : 11);
+
+function runLayout(w, h) {
+  const N = GRAPH.nodes, E = GRAPH.edges;
+  if (!N.length) return;
+  const doms = [...new Set(N.map(n => n.domain))];
+  // 先按域摆到各自的扇区，力导向再去调，避免每次刷新布局乱跳
+  N.forEach((n, i) => {
+    const a = doms.indexOf(n.domain) / doms.length * Math.PI * 2;
+    const r = Math.min(w, h) * 0.32;
+    n.x = w / 2 + Math.cos(a) * r + (i % 5 - 2) * 14;
+    n.y = h / 2 + Math.sin(a) * r + (i % 7 - 3) * 12;
+    n.vx = n.vy = 0;
+  });
+  const maxW = Math.max(1, ...E.map(e => e.w));
+  for (let step = 0; step < 320; step++) {
+    for (let i = 0; i < N.length; i++)
+      for (let j = i + 1; j < N.length; j++) {
+        const a = N[i], b = N[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        let d2 = dx * dx + dy * dy || 0.01;
+        const f = 2600 / d2;
+        const d = Math.sqrt(d2);
+        dx /= d; dy /= d;
+        a.vx -= dx * f; a.vy -= dy * f; b.vx += dx * f; b.vy += dy * f;
+      }
+    E.forEach(e => {
+      const a = N[e.a], b = N[e.b];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.hypot(dx, dy) || 0.01;
+      const rest = 90;
+      const f = (d - rest) * 0.006 * (0.4 + e.w / maxW);
+      dx /= d; dy /= d;
+      a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+    });
+    N.forEach(n => {
+      n.vx += (w / 2 - n.x) * 0.0016;
+      n.vy += (h / 2 - n.y) * 0.0016;
+      n.x += (n.vx *= 0.82); n.y += (n.vy *= 0.82);
+      const m = 46;
+      n.x = Math.max(m, Math.min(w - m, n.x));
+      n.y = Math.max(24, Math.min(h - 24, n.y));
+    });
+  }
+
+  // 力导向只管圆点不管文字，标签仍会叠在一起；按标签外框再推开几轮。
+  // 宽度用 measureText 实测，按字数估在窄屏上会算错、推不开。
+  const probe = document.createElement('canvas').getContext('2d');
+  probe.font = `400 ${labelPx()}px sans-serif`;
+  const cache = {};
+  const bw = n => (cache[n.id] = cache[n.id] ?? probe.measureText(n.label).width + 12);
+  for (let pass = 0; pass < 60; pass++) {
+    let moved = false;
+    for (let i = 0; i < N.length; i++)
+      for (let j = i + 1; j < N.length; j++) {
+        const a = N[i], b = N[j];
+        const need = (bw(a) + bw(b)) / 2;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        if (Math.abs(dy) > labelPx() + 6 || Math.abs(dx) > need) continue;
+        const push = (need - Math.abs(dx)) / 2 + 1;
+        const s = dx >= 0 ? 1 : -1;
+        a.x -= s * push; b.x += s * push;
+        moved = true;
+      }
+    if (!moved) break;
+    N.forEach(n => { n.x = Math.max(46, Math.min(w - 46, n.x)); });
+  }
+}
+
+function drawGraph() {
+  const cv = document.getElementById('graph');
+  if (!cv) return;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const g = cv.getContext('2d');
+  g.scale(dpr, dpr);
+  const css = getComputedStyle(cv);
+  const fg = css.color;
+  const red = css.getPropertyValue('--red').trim() || '#d71921';
+  const dim = css.getPropertyValue('--line-firm').trim();
+
+  const N = GRAPH.nodes, E = GRAPH.edges;
+  const near = new Set();
+  if (picked !== null) {
+    E.forEach(e => {
+      if (e.a === picked) near.add(e.b);
+      if (e.b === picked) near.add(e.a);
+    });
+  }
+
+  g.clearRect(0, 0, w, h);
+  const maxW = Math.max(1, ...E.map(e => e.w));
+  E.forEach(e => {
+    const on = picked !== null && (e.a === picked || e.b === picked);
+    g.strokeStyle = on ? red : dim;
+    g.globalAlpha = picked === null ? 0.55 : (on ? 0.95 : 0.12);
+    g.lineWidth = 0.4 + e.w / maxW * 2.2;
+    g.beginPath();
+    g.moveTo(N[e.a].x, N[e.a].y);
+    g.lineTo(N[e.b].x, N[e.b].y);
+    g.stroke();
+  });
+  g.globalAlpha = 1;
+
+  const maxN = Math.max(...N.map(n => n.n));
+  N.forEach((n, i) => {
+    const r = 4 + Math.sqrt(n.n / maxN) * 13;
+    const on = i === picked, adj = near.has(i);
+    g.globalAlpha = picked === null || on || adj ? 1 : 0.28;
+    g.beginPath(); g.arc(n.x, n.y, r, 0, Math.PI * 2);
+    g.fillStyle = on ? red : fg; g.fill();
+    if (adj) { g.strokeStyle = red; g.lineWidth = 1.5; g.stroke(); }
+
+    g.fillStyle = on ? red : fg;
+    g.font = `${on ? 600 : 400} ${labelPx()}px ${css.getPropertyValue('--sans')}`;
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    g.fillText(n.label, n.x, n.y + r + 4);
+  });
+  g.globalAlpha = 1;
+}
+
+function pickedHTML() {
+  if (picked === null) {
+    return `<p class="note">点任意节点看它串起了哪些书 · 线越粗共现越多</p>`;
+  }
+  const n = GRAPH.nodes[picked];
+  const nb = GRAPH.edges
+    .filter(e => e.a === picked || e.b === picked)
+    .map(e => ({ i: e.a === picked ? e.b : e.a, w: e.w }))
+    .sort((x, y) => y.w - x.w);
+  const rows = ALL.filter(q => q.k && q.k.includes(n.id));
+  const byBook = {};
+  rows.forEach(q => { byBook[q.book] = (byBook[q.book] || 0) + 1; });
+  const top = Object.entries(byBook).sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+  return `<div class="picked">
+      <h3>${esc(n.label)}<span class="n">${n.n} 条 · ${n.books} 本书</span></h3>
+      <p class="note" style="margin:.2rem 0 .6rem">主要来自 ${
+        top.map(([b, c]) => `${esc(b.length > 18 ? b.slice(0, 18) + '…' : b)} ${c}`).join(' · ')}</p>
+      ${nb.length ? `<div class="links">${nb.map(x =>
+        `<button type="button" data-jump="${x.i}">${esc(GRAPH.nodes[x.i].label)}<span class="wt"> ${x.w}</span></button>`
+      ).join('')}</div>` : ''}
+    </div>
+    <div class="entries">${rows.slice(0, 40).map(q => entryHTML(q)).join('')}</div>
+    ${rows.length > 40 ? `<p class="note">仅显示前 40 条，共 ${rows.length} 条</p>` : ''}`;
+}
+
+function selectConcept(i) {
+  picked = i;
+  drawGraph();
+  const box = document.getElementById('detail');
+  if (box) box.innerHTML = pickedHTML();
+  syncHash();
+  document.querySelectorAll('.chip').forEach(c =>
+    c.setAttribute('aria-pressed', String(+c.dataset.chip === i)));
+}
+
+let laidOut = 0;   // 记住上次布局用的尺寸，尺寸没变就不重排
+function mountGraph() {
+  const cv = document.getElementById('graph');
+  if (!cv) return;
+  const key = cv.clientWidth * 1e4 + cv.clientHeight;
+  if (key !== laidOut) { runLayout(cv.clientWidth, cv.clientHeight); laidOut = key; }
+  drawGraph();
+
+  cv.onclick = ev => {
+    const r = cv.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    let best = null, bd = 1e9;
+    GRAPH.nodes.forEach((n, i) => {
+      const d = Math.hypot(n.x - mx, n.y - my);
+      if (d < bd) { bd = d; best = i; }
+    });
+    // 手指比鼠标粗，触摸屏放宽命中半径
+    const reach = matchMedia('(pointer: coarse)').matches ? 34 : 26;
+    selectConcept(bd < reach ? (picked === best ? null : best) : null);
+  };
+}
+
+// 只注册一次；尺寸真的变了才重排，转屏后节点不会留在画布外
+addEventListener('resize', () => {
+  const cv = document.getElementById('graph');
+  if (!cv) return;
+  const key = cv.clientWidth * 1e4 + cv.clientHeight;
+  if (key !== laidOut) { runLayout(cv.clientWidth, cv.clientHeight); laidOut = key; }
+  drawGraph();
+});
+
+const TABS = {
+  map: () => {
+    const doms = [...new Set(GRAPH.nodes.map(n => n.domain))];
+    const order = GRAPH.nodes.map((n, i) => i).sort((a, b) => GRAPH.nodes[b].n - GRAPH.nodes[a].n);
+    return `<div class="canvaswrap"><canvas id="graph"></canvas></div>
+      <div class="legend">${doms.map(d =>
+        `<span><b>${esc(DOMAINS[d] || d)}</b> ${GRAPH.nodes.filter(n => n.domain === d).length}</span>`
+      ).join('')}<span>共 ${GRAPH.edges.length} 条关联</span></div>
+      <div class="chips">${order.map(i =>
+        `<button type="button" class="chip" data-chip="${i}"
+                 aria-pressed="${picked === i}">${esc(GRAPH.nodes[i].label)}</button>`
+      ).join('')}</div>
+      <div id="detail">${pickedHTML()}</div>`;
+  },
+
+  today: () => yearsHTML() +
+    `<p class="note">每天换一批 · 当天内刷新不变</p>` +
+    `<div class="entries" id="deck">${pickForToday(6).map(q => entryHTML(q)).join('')}</div>
+     <button type="button" class="backto" id="more" style="margin-top:1rem">再抽六条 →</button>`,
+
+  search: () =>
+    `<div class="field"><input id="q" type="search" autocomplete="off"
+        placeholder="搜索 ${ALL.length} 条摘录"></div>
+     <div id="hits"><p class="void">输入关键词</p></div>`,
+
+  books: shelfHTML,
+
+  words: () =>
+    `<div class="field"><input id="wq" type="search" autocomplete="off"
+        placeholder="查找 ${VOCAB.length} 个词"></div>
+     <p class="note">查词时只划了单词、没成句的都收在这里</p>
+     <ul class="lexicon" id="lex">${lexHTML(VOCAB)}</ul>`
+};
+
+function openBook(i, viaHash) {
+  const b = DB.b[i];
+  if (!b) return show('books');
+  current = 'books'; openBookIdx = i;
+  document.querySelectorAll('#tabs button').forEach(x =>
+    x.setAttribute('aria-selected', String(x.dataset.tab === 'books')));
+  if (!viaHash) syncHash(true);
+  view.innerHTML =
+    `<button type="button" class="backto" id="back">← 书架</button>
+     <h2 class="booktitle">${esc(b.t)}</h2>
+     <p class="note">${esc(b.a || '佚名')} · ${b.e.length} 条${SPAN[i].last ? ' · ' + (ym(SPAN[i].first) === ym(SPAN[i].last) ? ym(SPAN[i].last) : ym(SPAN[i].first) + ' → ' + ym(SPAN[i].last)) : ''}</p>
+     <div class="entries">` +
+    b.e.map(e => entryHTML({
+      text: e.x, loc: e.l, date: e.d, isNote: e.n, chapter: e.c,
+      book: b.t, author: b.a, src: b.s
+    })).join('') + `</div>`;
+  document.getElementById('back').onclick = () => show('books');
+  window.scrollTo(0, 0);
+}
+
+function runSearch(term) {
+  const box = document.getElementById('hits');
+  const t = term.trim();
+  if (!t) { box.innerHTML = '<p class="void">输入关键词</p>'; return; }
+  const low = t.toLowerCase();
+
+  // 搜书名时想要的是「这本书」，不是它底下 154 条散落的摘录，
+  // 所以书和生词各自成组浮到最前面
+  const bookHits = DB.b
+    .map((b, i) => ({ b, i }))
+    .filter(({ b }) => b.t.toLowerCase().includes(low)
+                    || (b.a || '').toLowerCase().includes(low));
+  const wordHits = VOCAB.filter(v =>
+    v.w.toLowerCase().includes(low) || v.z.includes(t));
+  const rowHits = ALL.filter(q => q.text.toLowerCase().includes(low));
+
+  if (!bookHits.length && !wordHits.length && !rowHits.length) {
+    box.innerHTML = '<p class="void">没有找到</p>';
+    return;
+  }
+
+  const parts = [];
+  if (bookHits.length) {
+    parts.push(`<p class="note">书 · ${bookHits.length}</p><ul class="shelf">`
+      + bookHits.map(({ b, i }) =>
+        `<li data-book="${i}" tabindex="0" role="button">
+           <span class="name">${esc(b.t)}</span>
+           ${b.a ? `<span class="by">${esc(b.a)}</span>` : ''}
+           <span class="n">${b.e.length}</span></li>`).join('') + '</ul>');
+  }
+  if (wordHits.length) {
+    parts.push(`<p class="note" style="margin-top:1.25rem">生词 · ${wordHits.length}</p>`
+      + `<ul class="lexicon">${lexHTML(wordHits.slice(0, 40))}</ul>`);
+  }
+  if (rowHits.length) {
+    parts.push(`<p class="note" style="margin-top:1.25rem">摘录 · ${rowHits.length}`
+      + `${rowHits.length > 300 ? ' · 显示前 300' : ''}</p>`
+      + `<div class="entries">${rowHits.slice(0, 300).map(q => entryHTML(q, t)).join('')}</div>`);
+  }
+  box.innerHTML = parts.join('');
+}
+
+let current = 'map';
+let openBookIdx = null;   // 书内视图时记住是哪本，进地址栏
+let searchTerm = '';      // 搜索词也进地址栏，刷新不丢
+
+// 地址栏记住当前页签、选中的概念、打开的书、搜索词——刷新、收藏、分享都能回到原处
+function syncHash(push) {
+  const n = picked !== null && GRAPH.nodes[picked];
+  let want = '#' + current;
+  if (current === 'map' && n) want += '/' + n.id;
+  else if (current === 'books' && openBookIdx !== null) want += '/' + openBookIdx;
+  else if (current === 'search' && searchTerm) want += '/' + encodeURIComponent(searchTerm);
+  if (location.hash === want) return;
+  // 打开一本书是一次「进入」，要留一条历史，浏览器返回才能回到书架；其余都是原地切换
+  (push ? history.pushState : history.replaceState).call(history, null, '', want);
+}
+
+function show(tab, keep) {
+  current = TABS[tab] ? tab : 'map';
+  tab = current;
+  openBookIdx = null;
+  if (!keep) searchTerm = '';
+  document.querySelectorAll('#tabs button').forEach(b =>
+    b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  view.innerHTML = TABS[tab]();
+  syncHash();
+  const more = document.getElementById('more');
+  if (more) more.onclick = () => {
+    deckPage++;
+    document.getElementById('deck').innerHTML =
+      pickForToday(6).map(q => entryHTML(q)).join('');
+  };
+  if (tab === 'search') {
+    const q = document.getElementById('q');
+    let t;
+    q.oninput = () => {
+      clearTimeout(t);
+      t = setTimeout(() => { searchTerm = q.value.trim(); runSearch(q.value); syncHash(); }, 120);
+    };
+    if (searchTerm) { q.value = searchTerm; runSearch(searchTerm); }
+    q.focus();
+  }
+  if (tab === 'map') mountGraph();
+  if (tab === 'books') {
+    document.querySelectorAll('.sortbar button').forEach(btn => btn.onclick = () => {
+      shelfSort = btn.dataset.sort;
+      try { localStorage.setItem('shelfSort', shelfSort); } catch (e) {}
+      view.innerHTML = TABS.books();
+      show('books', true);
+    });
+  }
+  if (tab === 'words') {
+    const wq = document.getElementById('wq');
+    wq.oninput = () => {
+      const k = wq.value.trim().toLowerCase();
+      document.getElementById('lex').innerHTML = lexHTML(
+        k ? VOCAB.filter(v => v.w.toLowerCase().includes(k) || v.z.includes(k)) : VOCAB);
+    };
+  }
+}
+
+document.getElementById('tabs').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b) show(b.dataset.tab);
+});
+
+view.addEventListener('click', e => {
+  const chip = e.target.closest('[data-chip]');
+  if (chip) {
+    const i = +chip.dataset.chip;
+    return selectConcept(picked === i ? null : i);
+  }
+  const jump = e.target.closest('[data-jump]');
+  if (jump) {
+    selectConcept(+jump.dataset.jump);
+    document.getElementById('graph').scrollIntoView({ block: 'start' });
+    return;
+  }
+  const sp = e.target.closest('[data-say]');
+  if (sp) return say(sp.dataset.say, sp);
+  const li = e.target.closest('[data-book]');
+  if (li) return openBook(+li.dataset.book);
+  const btn = e.target.closest('[data-copy]');
+  if (btn) {
+    const text = decodeURIComponent(btn.dataset.copy);
+    const done = ok => {
+      const was = btn.textContent;
+      btn.textContent = ok ? '已复制' : '复制失败';
+      setTimeout(() => { btn.textContent = was; }, 1200);
+    };
+    // 本地 file:// 打开时 clipboard API 未必可用，退回老办法
+    const legacy = () => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove(); done(ok);
+      } catch (_) { done(false); }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(text).then(() => done(true), legacy);
+    else legacy();
+  }
+});
+
+view.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const li = e.target.closest('[data-book]');
+  if (li) { e.preventDefault(); openBook(+li.dataset.book); }
+});
+
+// 按地址栏恢复现场：#map/power 这种形式
+function fromHash() {
+  const raw = location.hash.replace(/^#/, '');
+  const slash = raw.indexOf('/');
+  const tab = slash < 0 ? raw : raw.slice(0, slash);
+  const arg = slash < 0 ? '' : raw.slice(slash + 1);
+  picked = null;
+  if (tab === 'map' && arg) {
+    const i = GRAPH.nodes.findIndex(n => n.id === arg);
+    if (i >= 0) picked = i;
+  }
+  if (tab === 'books' && /^\d+$/.test(arg) && DB.b[+arg]) return openBook(+arg, true);
+  if (tab === 'search' && arg) {
+    try { searchTerm = decodeURIComponent(arg); } catch (_) { searchTerm = arg; }
+    return show('search', true);
+  }
+  show(TABS[tab] ? tab : 'map');
+}
+
+// 改 hash 是同文档导航，不加这个监听，前进/后退和手改地址栏都不会有反应
+addEventListener('hashchange', fromHash);
+fromHash();
+</script>

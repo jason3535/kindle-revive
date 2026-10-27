@@ -1,0 +1,15 @@
+示例书一 (示例作者)
+- 您在位置 #100-102的标注 | 添加于 2024年1月2日星期二 上午9:00:00
+
+这是一条虚构的示例高亮，用来演示管线可以跑通。
+==========
+Example Book Two (Sample Author)
+- Your Highlight on Location 50-51 | Added on Monday, March 4, 2024 10:00:00 AM
+
+This is a fictional sample highlight for testing the build.
+==========
+Example Book Two (Sample Author)
+- Your Highlight on Location 60-60 | Added on Monday, March 4, 2024 10:05:00 AM
+
+serendipity
+==========

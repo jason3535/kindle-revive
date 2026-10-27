@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "show-on-kindle": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-show-on-kindle"],
+      "env": {
+        "KINDLE_ALLOWED_DIRECTORIES": "~/Downloads/kindle-books,~/Documents/books"
+      }
+    }
+  }
+}
