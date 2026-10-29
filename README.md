@@ -211,7 +211,8 @@ python3 sync/cloud_sync.py push                      # 推 Apple Books 位置
 - 文档匹配用 kosync 的「按文件名」方式（`md5(文件名)`），电脑上 `~/Downloads/kindle-books` 里的文件名必须和 Kindle 上一致。
 - Cloudflare 会直接 403 掉 `Python-urllib` 这个默认 UA，脚本里已换成自定义 UA；自己写客户端时注意。
 - Apple Books 那一侧仍然只能从终端跑（TCC 授权给的是终端 App，launchd 不行），
-  想省事就在终端开个窗口循环：`while :; do python3 sync/cloud_sync.py push; sleep 600; done`。
+  想省事就双击 `sync/autosync.command`（在终端里每 10 分钟一轮：推 Apple Books 位置、拉 Kindle 划线、有变化才重建高亮站；关窗口即停）。
+  `cloud_sync.py` 还记着上次推过的位置：Apple Books 只要打开过书就会刷新时间戳，位置没动就不推，免得把 Kindle 上更新的进度拉回去。
 - 仍未实现：Kindle → Apple Books 写回（要改 Apple 的库，风险高）。
 
 ## 6. 高亮笔记站点
