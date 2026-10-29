@@ -216,6 +216,17 @@ python3 sync/cloud_sync.py push                      # 推 Apple Books 位置
   `cloud_sync.py` 还记着上次推过的位置：Apple Books 只要打开过书就会刷新时间戳，位置没动就不推，免得把 Kindle 上更新的进度拉回去。
 - 仍未实现：Kindle → Apple Books 写回（要改 Apple 的库，风险高）。
 
+**云端书架（无线推书）**：同一个 Worker 还提供 `/books` 接口，书按 20 MB 切块存进同一个 KV（免费额度总量 1 GB、每天 1000 次写，单本上限约 90 MB），不需要 R2。
+
+```bash
+python3 sync/shelf.py push 书.epub 论文.pdf   # 上传;Kindle / BOOX 联网时自动下载到 home_dir
+python3 sync/shelf.py list                   # 看云端有什么
+python3 sync/shelf.py rm 书.epub             # 从云端删(设备上已下载的不动)
+```
+
+`hlsync.koplugin` 在 KOReader 启动、唤醒、联上网时检查一次（最少间隔 10 分钟），菜单里也有「检查云端书架」手动触发。
+按「文件名 + 大小」判断缺不缺，先写 `.part` 再改名，下载不完整不会留半本书。设备休眠时不检查（KOReader 停着，也没网）。
+
 ## 5c. 第二台设备：BOOX（安卓墨水屏）也接进来
 
 安卓不用越狱，云同步那套可以原样复用（实测 BOOX Note X，Android 11，KOReader v2026.07.1）：

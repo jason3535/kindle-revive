@@ -9,3 +9,4 @@ routes = [
 [[kv_namespaces]]
 binding = "KV"
 id = "REPLACE_WITH_YOUR_KV_ID"   # npx wrangler kv namespace create KV 的输出
+
