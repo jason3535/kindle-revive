@@ -33,6 +33,7 @@
 | 高亮站点 | `highlights/` | 否（KOReader 划线需越狱） | 单文件离线网页 + 可导出 AZW3 给 Kindle 读 |
 | AI Podcast 插件 | `plugin/simpleui.koplugin` | 是 | KOReader SimpleUI 改版，预置 aipodcast 内容源 |
 | 休眠壁纸 | `wallpaper/` | 是（KOReader 屏保） | 1072×1448 灰度 |
+| **BOOX 接入** | `scripts/push_boox.sh` | 否（安卓，adb 即可） | 同一套云同步 + 同一个插件，三端进度互通 |
 
 ## 架构
 
@@ -78,7 +79,7 @@ flowchart LR
 ├── jailbreak/        KOReader 启动器脚本模板
 ├── koreader/         settings 片段、koreader.sh 防火墙补丁说明
 ├── mcp/              Claude Code / Desktop 配置示例
-├── scripts/          SSH 密钥安装、kssh、EPUB 重打包、插件安装/卸载、壁纸
+├── scripts/          SSH 密钥安装、kssh、EPUB 重打包、插件安装/卸载、壁纸、BOOX 推书
 ├── sync/             进度同步：sync_progress.py（局域网直推）、cloud_sync.py（经云端）
 ├── cloud/            云端同步服务器（Cloudflare Worker + KV，kosync 协议兼容）
 ├── highlights/       高亮管线 + 页面模板（sample/ 是虚构示例数据）
@@ -215,6 +216,28 @@ python3 sync/cloud_sync.py push                      # 推 Apple Books 位置
   `cloud_sync.py` 还记着上次推过的位置：Apple Books 只要打开过书就会刷新时间戳，位置没动就不推，免得把 Kindle 上更新的进度拉回去。
 - 仍未实现：Kindle → Apple Books 写回（要改 Apple 的库，风险高）。
 
+## 5c. 第二台设备：BOOX（安卓墨水屏）也接进来
+
+安卓不用越狱，云同步那套可以原样复用（实测 BOOX Note X，Android 11，KOReader v2026.07.1）：
+
+```bash
+# 设备上先开「USB 调试模式」：应用 → 右上角 → 应用管理（BOOX 把原生开发者选项藏了，连点版本号常常没用）
+adb install -r koreader-android-arm64-vXXXX.apk          # GitHub Releases 下载 arm64 版
+adb shell appops set org.koreader.launcher MANAGE_EXTERNAL_STORAGE allow
+adb shell pm enable org.koreader.launcher               # ⚠️ Onyx 会把新装的 app 直接"冻结"(enabled=3)，不解冻启动不了
+adb push cloud/kosync.settings.example.lua /sdcard/koreader/settings/kosync.lua   # 填好账号的那份
+adb push plugin/hlsync.koplugin /sdcard/koreader/plugins/hlsync.koplugin
+scripts/push_boox.sh ~/Downloads/kindle-books/*.epub    # 文件名与 Kindle 上一致，进度才对得上
+adb shell am start -n org.koreader.launcher/.MainActivity
+```
+
+- 顺手在 `/sdcard/koreader/settings.reader.lua` 里预置 `home_dir = "/sdcard/Books"`、`httpinspector = {autostart=true, port=8080}`：
+  之后 `adb forward tcp:18080 tcp:8080` 就能像 Kindle 一样用 inspector 远程操作（curl 记得 `--noproxy '*'`）。
+- 黑白机型把 `color_rendering` 设成 false，省内存（Note X 只有 3 GB）。
+- 安卓上 KOReader 自己管不了 Wi-Fi，但也不需要：auto_sync 直接工作，开书拉、关书/休眠推。
+- 在 BOOX 的应用管理里把 KOReader 的「自动冻结」关掉，否则 Onyx 隔段时间会再把它冻住。
+- macOS 不认 MTP；没有 adb 时可用 `brew install libmtp` 的 `mtp-detect` / `mtp-sendfile` 读信息和送文件。
+
 ## 6. 高亮笔记站点
 
 ```bash
@@ -307,7 +330,7 @@ export KINDLE_HOST=<Kindle IP>
 **kindle-revive** turns an old, jailbroken Kindle (tested only on a Paperwhite 3, FW 5.16.2.1.1, KOReader kindlepw2 v2026.07) into a companion for your Mac:
 
 1. **Send books from your computer via MCP** (`mcp-show-on-kindle` with Claude Code / Claude Desktop; note `KINDLE_ALLOWED_DIRECTORIES` is comma-separated; Apple Books EPUBs are folders and must be re-zipped — see `scripts/rezip_applebooks_epub.sh`).
-2. **Sync reading position from Apple Books to KOReader** (`sync/sync_progress.py`, converts EPUB CFI → crengine XPointer and jumps via the HTTP inspector over SSH), or **through the cloud** (`cloud/worker.js`: a self-hosted, single-user KOReader sync server on a Cloudflare Worker, plus `sync/cloud_sync.py` and the `hlsync.koplugin` that snapshots highlights to the same server), so the Kindle never has to be on the same LAN as the computer.
+2. **Sync reading position from Apple Books to KOReader** (`sync/sync_progress.py`, converts EPUB CFI → crengine XPointer and jumps via the HTTP inspector over SSH), or **through the cloud** (`cloud/worker.js`: a self-hosted, single-user KOReader sync server on a Cloudflare Worker, plus `sync/cloud_sync.py` and the `hlsync.koplugin` that snapshots highlights to the same server), so the Kindle never has to be on the same LAN as the computer. The same server and plugin also work on an Android e-reader (tested on a BOOX Note X with KOReader for Android, see `scripts/push_boox.sh`), giving three-way progress sync between Kindle, BOOX and Apple Books.
 3. **Merge highlights** from Kindle clippings, KOReader and Apple Books into a single offline HTML page (`highlights/`, macOS Full Disk Access required for Apple Books).
 4. **Read [AI Podcast](https://aipodcast.jasonlin.tech) on the Kindle** with a modified SimpleUI KOReader plugin (GPL-3.0, based on joeseesun/qiaomu-simpleui) with preset sources.
 
