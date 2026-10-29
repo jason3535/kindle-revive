@@ -28,7 +28,8 @@
 |---|---|---|---|
 | 越狱 + KOReader | `jailbreak/` `koreader/` | 是 | 步骤文档、启动器脚本、SSH/inspector 配置模板 |
 | MCP 推书 | `mcp/` `scripts/rezip_applebooks_epub.sh` | 是 | 基于 [mcp-show-on-kindle](https://pypi.org/project/mcp-show-on-kindle/) |
-| 进度同步 | `sync/sync_progress.py` | 是 | Apple Books CFI → KOReader XPointer |
+| 进度同步（局域网） | `sync/sync_progress.py` | 是 | Apple Books CFI → KOReader XPointer，经 SSH 直推 |
+| **云端同步** | `cloud/` `sync/cloud_sync.py` `plugin/hlsync.koplugin` | 是 | 自建 kosync 服务器：进度双向 + 划线快照，Kindle 在任何网络都行，不用碰 Wi-Fi |
 | 高亮站点 | `highlights/` | 否（KOReader 划线需越狱） | 单文件离线网页 + 可导出 AZW3 给 Kindle 读 |
 | AI Podcast 插件 | `plugin/simpleui.koplugin` | 是 | KOReader SimpleUI 改版，预置 aipodcast 内容源 |
 | 休眠壁纸 | `wallpaper/` | 是（KOReader 屏保） | 1072×1448 灰度 |
@@ -54,12 +55,17 @@ flowchart LR
     PL[SimpleUI · AI Podcast 插件]
   end
   SITE[(aipodcast.jasonlin.tech<br/>/kindle/api 静态 JSON)]
+  KS[(ksync 云端中转<br/>Cloudflare Worker + KV<br/>kosync 协议 + /hl)]
 
   CC --> MCP -- scp over SSH --> DOC
   AB --> EP
   AB -- 最后阅读位置 CFI --> SYNC -- SSH → curl 127.0.0.1:8080 --> INS --> KO
   AB --> HL
-  SDR -- parse_koreader.py --pull --> HL
+  SDR -- parse_koreader.py --pull<br/>SSH 或 USB --> HL
+  AB -- cloud_sync.py<br/>带 Apple 阅读时刻 --> KS
+  KS <-- kosync 插件<br/>开书拉 · 关书/休眠推 --> KO
+  KO -- hlsync 插件<br/>划线快照 --> KS
+  KS -- parse_koreader.py --pull --> HL
   PL -- HTTPS --> SITE
   KO --- PL
 ```
@@ -73,9 +79,10 @@ flowchart LR
 ├── koreader/         settings 片段、koreader.sh 防火墙补丁说明
 ├── mcp/              Claude Code / Desktop 配置示例
 ├── scripts/          SSH 密钥安装、kssh、EPUB 重打包、插件安装/卸载、壁纸
-├── sync/             Apple Books → KOReader 进度同步
+├── sync/             进度同步：sync_progress.py（局域网直推）、cloud_sync.py（经云端）
+├── cloud/            云端同步服务器（Cloudflare Worker + KV，kosync 协议兼容）
 ├── highlights/       高亮管线 + 页面模板（sample/ 是虚构示例数据）
-├── plugin/           simpleui.koplugin（GPL-3.0，AI Podcast 版）
+├── plugin/           simpleui.koplugin（GPL-3.0，AI Podcast 版）、hlsync.koplugin（划线上云，MIT）
 └── wallpaper/        休眠壁纸
 ```
 
@@ -162,6 +169,51 @@ python3 sync/sync_progress.py push [书名关键字] # 让 Kindle 打开书并�
 - 需要给终端 **完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问），否则读不到 Apple Books 容器。
 - 反向同步（Kindle → Apple Books）**未实现**（要改 Apple 数据库并经 iCloud，风险高）。
 
+## 5b. 云端同步：进度 + 划线，Kindle 在哪个网络都行
+
+第 5 节的直推要求电脑能摸到 Kindle（同一局域网、Kindle 醒着、Wi-Fi 真连上）。
+实际用下来这三个条件经常凑不齐：Kindle 休眠就断 Wi-Fi，公司网络有设备隔离。
+云端方案把"谁找谁"改成"两边各自上云"：
+
+```
+Apple Books ──cloud_sync.py──▶ ksync(自建) ◀──kosync 插件(KOReader 自带)── Kindle 进度
+                                    ▲
+高亮站 ◀──parse_koreader.py──────── └────── hlsync 插件(本仓库) ── Kindle 划线快照
+```
+
+- **进度**：KOReader 自带的「进度同步」插件（kosync）本来就支持自定义服务器。`cloud/worker.js`
+  把它的四个接口完整实现在一个 Cloudflare Worker 上（KV 存储，单用户，凭据放 secrets）。
+  Kindle 开书自动拉、关书/休眠自动推；电脑端 `cloud_sync.py push` 把 Apple Books 的位置
+  连同**真实阅读时刻**推上去。服务器一本书只留一条，谁读得晚谁说了算：
+  电脑只在 Apple 的时刻比服务器记录新时才覆盖；Kindle 端 `sync_forward=静默`、`sync_backward=不动`。
+- **划线**：自带的「导出划线」只能手动、Readwise 地址写死、还丢字段，所以另写了 `plugin/hlsync.koplugin`：
+  关书/休眠/划线有改动时把整本 `annotations` 原样快照 `PUT /hl/<md5(文件名)>`，离线先排队、联网补发；
+  复用 kosync 的服务器地址和账号，不用再配。电脑端 `parse_koreader.py --pull` 会把云端快照和
+  USB/SSH 拉到的 `.sdr` 合并去重。
+- **Wi-Fi 不用再手动开关**：kosync 的自动同步要求 KOReader 的「Wi-Fi 关闭时的操作 = 自动开启」，
+  设置脚本会一并改好，之后 KOReader 需要联网时自己开。
+
+部署：
+
+```bash
+cd cloud && cp wrangler.example.toml wrangler.toml   # 填自己的域名
+npx wrangler kv namespace create KV                  # 把 id 填进 wrangler.toml
+printf 'yourname' | npx wrangler secret put SYNC_USER
+python3 -c "import hashlib;print(hashlib.md5(b'你的密码').hexdigest())" | npx wrangler secret put SYNC_KEY
+npx wrangler deploy                                  # 自定义域在 wrangler.toml 的 routes 里改成你的
+# 电脑端凭据(chmod 600):
+printf 'KSYNC_URL=https://ksync.你的域名\nKSYNC_USER=jason\nKSYNC_KEY=<同上 md5>\n' > ~/.config/kindle-sync/env
+export KINDLE_HOST=<Kindle IP>; scripts/setup_cloud_sync.sh   # Kindle 要醒着;写设置+装插件+重启
+python3 sync/cloud_sync.py status                    # 看两边位置
+python3 sync/cloud_sync.py push                      # 推 Apple Books 位置
+```
+
+- 文档匹配用 kosync 的「按文件名」方式（`md5(文件名)`），电脑上 `~/Downloads/kindle-books` 里的文件名必须和 Kindle 上一致。
+- Cloudflare 会直接 403 掉 `Python-urllib` 这个默认 UA，脚本里已换成自定义 UA；自己写客户端时注意。
+- Apple Books 那一侧仍然只能从终端跑（TCC 授权给的是终端 App，launchd 不行），
+  想省事就在终端开个窗口循环：`while :; do python3 sync/cloud_sync.py push; sleep 600; done`。
+- 仍未实现：Kindle → Apple Books 写回（要改 Apple 的库，风险高）。
+
 ## 6. 高亮笔记站点
 
 ```bash
@@ -175,7 +227,7 @@ python3 refresh.py
 | 来源 | 脚本 | 取法 |
 |---|---|---|
 | Kindle 原生 `My Clippings.txt` | `parse_clippings.py` | Kindle 插着 USB 时 `refresh.py` 自动从 `/Volumes/KINDLE` 拷到 `_kindle/` |
-| KOReader 划线（`.sdr/metadata.*.lua`） | `parse_koreader.py --pull` | Wi-Fi SSH 拉取，Kindle 不在线就沿用上次 |
+| KOReader 划线（`.sdr/metadata.*.lua`） | `parse_koreader.py --pull` | 插着 USB 就从 U 盘拷；否则 Wi-Fi SSH 拉取；都不通就沿用上次 |
 | Apple Books 标注 | `parse_applebooks.py` | 直接读容器 sqlite（连 `-wal` 一起拷） |
 
 产物 `index.html` 是单文件离线站（数据内嵌）：今日回顾、全文搜索、书架、知识点图谱（`concepts.json` 定义概念与正则，可按自己的阅读改）、单词本（释义写在 `vocab_zh.json`，`build.py` 会列出缺释义的词）。`make_epub.py` 可把摘录导出 EPUB，再用 calibre 转 AZW3 放到 Kindle 上读（PW3 自带浏览器跑不动这个网页）。
@@ -218,6 +270,8 @@ export KINDLE_HOST=<Kindle IP>
 
 | 现象 | 原因 / 解决 |
 |---|---|
+| KOReader「网络信息」里 SSID 显示「已关闭」 | 正常。那是 `SSID: off/any` 的中文翻译，Kindle 上 KOReader 读不到 SSID 就这么显示，不代表没连上。判断通不通只看电脑这边 2222 口 |
+| inspector 发 `event/Restart/` 没反应 | `event/` 只发给最上层控件；用 `broadcast/Restart/`。另：`ui/onClose/` 是整个退出 KOReader，不是关书，别调 |
 | SSH 偶尔 `Connection refused` / 扫描找不到 Kindle | Kindle 休眠后 Wi-Fi 重连有空窗；先点亮屏幕，等几秒重试。局域网扫描**扫两轮**，第一轮休眠中的 Kindle 常不应答 |
 | USB 挂载后文件不一致 / 损坏 | **先退出 KOReader 再挂载**；拔线前在访达里推出 |
 | 原生阅读器看不到 EPUB | PW3 原生不支持 EPUB，用 KOReader 打开，或 calibre 转 AZW3 |
@@ -252,7 +306,7 @@ export KINDLE_HOST=<Kindle IP>
 **kindle-revive** turns an old, jailbroken Kindle (tested only on a Paperwhite 3, FW 5.16.2.1.1, KOReader kindlepw2 v2026.07) into a companion for your Mac:
 
 1. **Send books from your computer via MCP** (`mcp-show-on-kindle` with Claude Code / Claude Desktop; note `KINDLE_ALLOWED_DIRECTORIES` is comma-separated; Apple Books EPUBs are folders and must be re-zipped — see `scripts/rezip_applebooks_epub.sh`).
-2. **Sync reading position from Apple Books to KOReader** (`sync/sync_progress.py`, converts EPUB CFI → crengine XPointer and jumps via the HTTP inspector over SSH).
+2. **Sync reading position from Apple Books to KOReader** (`sync/sync_progress.py`, converts EPUB CFI → crengine XPointer and jumps via the HTTP inspector over SSH), or **through the cloud** (`cloud/worker.js`: a self-hosted, single-user KOReader sync server on a Cloudflare Worker, plus `sync/cloud_sync.py` and the `hlsync.koplugin` that snapshots highlights to the same server), so the Kindle never has to be on the same LAN as the computer.
 3. **Merge highlights** from Kindle clippings, KOReader and Apple Books into a single offline HTML page (`highlights/`, macOS Full Disk Access required for Apple Books).
 4. **Read [AI Podcast](https://aipodcast.jasonlin.tech) on the Kindle** with a modified SimpleUI KOReader plugin (GPL-3.0, based on joeseesun/qiaomu-simpleui) with preset sources.
 

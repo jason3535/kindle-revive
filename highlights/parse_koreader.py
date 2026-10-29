@@ -3,7 +3,7 @@
 highlights.json 同构的 koreader.json。KOReader 不写 My Clippings.txt,这一路不接,
 在 Kindle 上用 KOReader 读的书划线全漏。
 
-    python3 parse_koreader.py --pull     # 先经 SSH 从 Kindle 拉最新 .sdr 再解析
+    python3 parse_koreader.py --pull     # 先拉最新数据再解析:云端快照(hlsync 插件)+ USB U 盘 或 Wi-Fi SSH 的 .sdr
     python3 parse_koreader.py            # 只解析 _koreader/sdr 里上次拉下来的
 
 只拉 /mnt/us/documents 下的(真正的书);koreader/settings 里播客文章的 .sdr 不算。
@@ -36,12 +36,65 @@ def kindle_host():
     return "kindle.local"  # 或 export KINDLE_HOST=<Kindle IP>
 
 
+USB_VOL = Path("/Volumes/KINDLE")        # USB 线插着时 Kindle 挂载成 U 盘,/mnt/us 就是这个卷
+
+
+def pull_usb():
+    """Wi-Fi 不通时的备用线路:直接从 U 盘模式的 Kindle 拷 .sdr(只读,不碰设备上的文件)。"""
+    docs = USB_VOL / "documents"
+    if not docs.is_dir():
+        return False
+    SDR.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for f in docs.rglob("metadata.*.lua"):
+        if f.parent.suffix != ".sdr":
+            continue
+        dst = SDR / f.relative_to(docs)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(f.read_bytes())
+        n += 1
+    print(f"· KOReader: 经 USB 拉到 {n} 本书的 sidecar")
+    return True
+
+
+CLOUD = HERE / "_koreader" / "cloud"
+
+
+def pull_cloud():
+    """第三条线路:Kindle 上的 hlsync 插件把每本书的划线快照推到了自建同步服务器,
+    这里整份拉下来(~/.config/kindle-sync/env 里有地址和凭据)。Kindle 在哪个网络都无所谓。"""
+    envp = Path.home() / ".config/kindle-sync/env"
+    if not envp.exists():
+        return False
+    env = dict(l.strip().split("=", 1) for l in envp.read_text().splitlines() if "=" in l and not l.startswith("#"))
+    try:
+        import urllib.request
+        req = urllib.request.Request(env["KSYNC_URL"].rstrip("/") + "/hl", headers={
+            "x-auth-user": env["KSYNC_USER"], "x-auth-key": env["KSYNC_KEY"], "user-agent": "kindle-sync/1.0"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            snaps = json.loads(r.read().decode())
+    except Exception as e:                # 网络/凭据问题不该拖垮整条管线
+        print(f"· KOReader: 云端划线拉取失败({e}),沿用上次")
+        return CLOUD.exists()
+    CLOUD.mkdir(parents=True, exist_ok=True)
+    for stale in CLOUD.glob("*.json"):     # 服务器返回的是全量,本地旧快照一律换掉
+        stale.unlink()
+    for s in snaps:
+        if s.get("annotations") is not None:
+            (CLOUD / f"{s['document']}.json").write_text(json.dumps(s, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"· KOReader: 云端拉到 {len(snaps)} 本书的划线快照")
+    return True
+
+
 def pull():
+    pull_cloud()                             # 云端永远拉一次,再看有没有更完整的本地线路
+    if pull_usb():                           # 插着线就不走网络
+        return True
     host = kindle_host()
     try:
         socket.create_connection((host, 2222), timeout=3).close()
     except OSError:
-        print(f"· KOReader: Kindle({host}:2222)不在线,沿用上次数据")
+        print(f"· KOReader: Kindle({host}:2222)不在线,也没插 USB,沿用上次数据")
         return SDR.exists()
     SDR.mkdir(parents=True, exist_ok=True)
     ssh = ["ssh", "-i", str(KEY), "-o", "IdentitiesOnly=yes", "-p", "2222", "-o", "ConnectTimeout=10",
@@ -219,9 +272,37 @@ def main():
             key = (title, author)
             books.setdefault(key, []).extend(entries)
 
+    for path in sorted(CLOUD.glob("*.json")) if CLOUD.exists() else []:
+        try:
+            snap = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"  ! {path.name}: {e}")
+            continue
+        title = (snap.get("title") or "").strip()
+        author = (snap.get("authors") or "").strip().replace("\n", "; ")
+        entries = []
+        for a in snap.get("annotations") or []:
+            text = (a.get("text") or "").strip()
+            if not text:
+                continue
+            base = {"title": title, "author": author, "loc": a.get("pageno"), "page": a.get("pageno"),
+                    "date": norm_date(a.get("datetime")), "chapter": (a.get("chapter") or "").strip()}
+            entries.append({**base, "type": "highlight", "text": text, "chars": len(text)})
+            note = (a.get("note") or "").strip()
+            if note:
+                entries.append({**base, "type": "note", "text": note, "chars": len(note)})
+        if entries:
+            books.setdefault((title, author), []).extend(entries)
+
     out = []
     for (title, author), entries in books.items():
-        entries = dedupe(entries)
+        seen, uniq = set(), []            # 同一条划线可能同时来自 .sdr 和云端快照
+        for e in entries:
+            k = (e["type"], e["date"], e["text"])
+            if k not in seen:
+                seen.add(k)
+                uniq.append(e)
+        entries = dedupe(uniq)
         dates = [e["date"] for e in entries if e["date"]]
         out.append({"title": title, "author": author, "count": len(entries),
                     "first": min(dates) if dates else "", "last": max(dates) if dates else "",

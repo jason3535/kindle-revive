@@ -1,0 +1,11 @@
+# 复制成 wrangler.toml 再部署(wrangler.toml 已 gitignore,避免把自己的域名和 KV id 推上公开仓库)
+name = "kindle-sync"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+routes = [
+  { pattern = "ksync.example.com", custom_domain = true }   # 换成你自己的域名(需在 Cloudflare 托管)
+]
+
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_YOUR_KV_ID"   # npx wrangler kv namespace create KV 的输出
