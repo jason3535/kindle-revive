@@ -179,8 +179,12 @@ function HLSync:snapshot()
             })
         end
     end
+    local doc = md5(name)          -- 与 kosync「按文件名匹配」的 digest 一致
+    -- 云端按 书 + 设备 分开存:同一本书 Kindle 和 BOOX 各一份快照,互不覆盖
+    local dev = (G_reader_settings:readSetting("device_id") or Device.model or "dev"):gsub("[^%w]", ""):sub(1, 8)
     return {
-        document = md5(name),      -- 与 kosync「按文件名匹配」的 digest 一致
+        key = doc .. "-" .. dev,
+        document = doc,
         filename = name,
         title = props.display_title or props.title or name,
         authors = props.authors,
@@ -192,7 +196,7 @@ end
 
 function HLSync:enqueue(snap)
     util.makePath(QUEUE_DIR)
-    local f = io.open(QUEUE_DIR .. "/" .. snap.document .. ".json", "w")
+    local f = io.open(QUEUE_DIR .. "/" .. snap.key .. ".json", "w")
     if not f then return false end
     f:write(rapidjson.encode(snap))
     f:close()
@@ -232,7 +236,7 @@ function HLSync:drain(interactive)
     end
     local sent, failed = 0, 0
     for entry in lfs.dir(QUEUE_DIR) do
-        local document = entry:match("^(%x+)%.json$")
+        local document = entry:match("^([%w%-]+)%.json$")
         if document then
             local path = QUEUE_DIR .. "/" .. entry
             local f = io.open(path, "r")

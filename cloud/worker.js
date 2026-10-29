@@ -89,6 +89,8 @@ export default {
     mm = path.match(/^\/hl\/([^/]+)$/);
     if (mm && m === "PUT") {
       const b = await readJson(req);
+      // Lua 的空表会被 rapidjson 编成 {},当作空数组
+      if (b && b.annotations && !Array.isArray(b.annotations) && typeof b.annotations === "object" && !Object.keys(b.annotations).length) b.annotations = [];
       if (!b || !Array.isArray(b.annotations)) return reply(400, { message: "annotations[] required" });
       const rec = { ...b, document: mm[1], received_at: Math.floor(Date.now() / 1000) };
       await env.KV.put("h:" + mm[1], JSON.stringify(rec));
